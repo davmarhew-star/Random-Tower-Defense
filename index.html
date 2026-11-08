@@ -18,7 +18,7 @@
   button { background: #16213e; border: 2px solid #334155; color: #e2e8f0; padding: 10px 14px; border-radius: 10px; font-size: 14px; min-width: 100px; }
   button.selected { background: #0ea5e9; border-color: #38bdf8; color: white; }
   button:disabled { opacity: 0.5; }
-  #info { position: absolute; top: 50px; right: 12px; background: rgba(15,15,35,0.9); padding: 12px; border-radius: 12px; width: 180px; max-width: 180px; display: none; pointer-events: auto; border: 1px solid #334155; box-sizing: border-box; }
+  #info { position: absolute; top: 90px; right: 12px; background: rgba(15,15,35,0.92); padding: 12px; border-radius: 12px; width: 170px; display: none; pointer-events: auto; border: 1px solid #334155; z-index: 5; }
   #diff { position: absolute; top: 48px; left: 12px; display: flex; gap: 6px; pointer-events: auto; }
   #diff button { min-width: 70px; padding: 8px 10px; font-size: 13px; }
   #diff button.active { background: #0369a1; border-color: #0ea5e9; }
@@ -87,6 +87,8 @@ let waveActive = false, toSpawn = [], spawnT = 0;
 let difficulty = 'easy';
 const towers = [], enemies = [], bullets = [];
 let path = [];
+let paths = [];
+let resources = [];
 let currentSeed = 0;
 let highScores = JSON.parse(localStorage.getItem('tdHigh') || '{}');
 let gameSpeed = 1;
@@ -123,17 +125,26 @@ function generatePath(seed) {
   currentSeed = seed;
   document.getElementById('seedInput').value = seed;
   const rand = mulberry32(seed);
-  const points = [{x: 0, y: H * (0.35 + rand()*0.3)}];
-  let x = 0;
-  const steps = 5 + Math.floor(rand()*3);
-  for (let i = 0; i < steps; i++) {
-    x += W / steps * (0.7 + rand()*0.6);
-    if (x > W - 40) x = W - 40;
-    const y = Math.max(80, Math.min(H - 120, points[points.length-1].y + (rand()-0.5)*H*0.45));
-    points.push({x, y});
-  }
-  points.push({x: W, y: points[points.length-1].y + (rand()-0.5)*60});
-  path = points;
+  const makePath = (offsetY) => {
+    const points = [{x: 0, y: H * (0.25 + offsetY + rand()*0.2)}];
+    let x = 0;
+    const steps = 6 + Math.floor(rand()*3);
+    let dir = rand() > 0.5 ? 1 : -1;
+    for (let i = 0; i < steps; i++) {
+      x += W / steps * (0.4 + rand()*0.7);
+      if (x > W - 20) x = W - 20;
+      const yShift = (rand() - 0.4) * H * 0.5 * dir;
+      dir *= -1;
+      const y = Math.max(60, Math.min(H - 100, points[points.length-1].y + yShift));
+      points.push({x, y});
+    }
+    points.push({x: W, y: points[points.length-1].y + (rand()-0.5)*70});
+    return points;
+  };
+  paths = [makePath(0)];
+  if (rand() > 0.45) paths.push(makePath(0.35));
+  path = paths[0];
+  resources = [];
   updateHighDisplay();
 }
 
@@ -146,7 +157,7 @@ const diffs = {
 const defs = {
   basic:  { color: '#38bdf8', dmg: 10, range: 120, rate: 1.4, cost: 40, name: 'Basic' },
   slow:   { color: '#22d3ee', dmg: 4,  range: 110, rate: 1.0, cost: 60, name: 'Slow', slow: 0.5 },
-  splash: { color: '#f97316', dmg: 18, range: 130, rate: 0.8, cost: 80, name: 'Splash', splash: 40 },
+  splash: { color: '#f97316', dmg: 12, range: 120, rate: 0.75, cost: 80, name: 'Splash', splash: 28 },
   sniper: { color: '#a78bfa', dmg: 35, range: 200, rate: 0.5, cost: 100, name: 'Sniper' }
 };
 
@@ -224,8 +235,10 @@ document.querySelectorAll('#diff button').forEach(b => {
 });
 
 function canPlace(x, y) {
-  for (let i = 0; i < path.length-1; i++) {
-    if (distToLine(x, y, path[i], path[i+1]) < 38) return false;
+  for (const pth of paths) {
+    for (let i = 0; i < pth.length-1; i++) {
+      if (distToLine(x, y, pth[i], pth[i+1]) < 38) return false;
+    }
   }
   return towers.every(t => Math.hypot(t.x-x, t.y-y) > 46) && x > 25 && x < W-25 && y > 60 && y < H-80;
 }
@@ -279,16 +292,16 @@ function sell() {
 }
 
 function callEarly() {
-  if (!waveActive) return;
-  const bonus = Math.round((toSpawn.length * 8 + enemies.length * 4) * diffs[difficulty].rewardMult);
+  if (!waveActive || wave >= 15) return;
+  const bonus = Math.round(12 * diffs[difficulty].rewardMult);
   gold += bonus;
-  // clear remaining
-  toSpawn = [];
-  enemies.length = 0;
-  bullets.length = 0;
-  waveActive = false;
-  document.getElementById('start').textContent = 'Start Wave';
-  document.getElementById('callEarly').style.display = 'none';
+  // start next wave immediately without clearing current enemies
+  wave++;
+  const d = diffs[difficulty];
+  const n = Math.round((7 + wave * 2.2) * d.countMult);
+  const extra = Array(n).fill(0).map((_, i) => i % 7 === 0 && wave > 3 ? 'tank' : i % 4 === 0 ? 'fast' : 'normal');
+  toSpawn = toSpawn.concat(extra);
+  document.getElementById('start').textContent = 'Wave...';
   updateUI();
 }
 
@@ -344,7 +357,7 @@ function startWave() {
   wave++;
   waveActive = true;
   const d = diffs[difficulty];
-  const n = Math.round((5 + wave * 2) * d.countMult);
+  const n = Math.round((7 + wave * 2.2) * d.countMult);
   toSpawn = Array(n).fill(0).map((_, i) => i % 7 === 0 && wave > 3 ? 'tank' : i % 4 === 0 ? 'fast' : 'normal');
   spawnT = 0;
   document.getElementById('start').textContent = 'Wave...';
@@ -357,11 +370,13 @@ function spawn(type) {
   const base = type === 'tank' ? {hp: 90, speed: 0.55, color: '#64748b', reward: 16, size: 16} :
                type === 'fast' ? {hp: 22, speed: 1.8, color: '#facc15', reward: 9, size: 10} :
                                  {hp: 35, speed: 1.0, color: '#ef4444', reward: 7, size: 13};
+  const pathIndex = Math.floor(Math.random() * paths.length);
   enemies.push({
-    x: path[0].x, y: path[0].y, idx: 0, prog: 0,
+    x: paths[pathIndex][0].x, y: paths[pathIndex][0].y, idx: 0, prog: 0,
     hp: base.hp * mult, max: base.hp * mult,
     speed: base.speed * d.speedMult,
-    color: base.color, reward: Math.round(base.reward * d.rewardMult), size: base.size, type
+    color: base.color, reward: Math.round(base.reward * d.rewardMult), size: base.size, type,
+    pathIndex, carrying: false, returning: false
   });
 }
 
@@ -375,10 +390,9 @@ function loop(now) {
     spawnT += dt;
     if (spawnT > 0.55) { spawn(toSpawn.shift()); spawnT = 0; }
   }
-  if (waveActive && !toSpawn.length && !enemies.length) {
+  if (waveActive && !toSpawn.length && !enemies.length && !resources.length) {
     waveActive = false;
     gold += Math.round((15 + wave * 4) * diffs[difficulty].rewardMult);
-    document.getElementById('start').textContent = 'Start Wave';
     document.getElementById('callEarly').style.display = 'none';
     saveHigh();
     if (wave >= 15) {
@@ -386,18 +400,42 @@ function loop(now) {
       return;
     }
     if (wave >= 10 && difficulty !== 'hard') document.getElementById('nextDiff').style.display = 'inline-block';
+    // auto-start next wave
+    setTimeout(() => { if (!won && !paused) startWave(); }, 800);
   }
   if (waveActive) document.getElementById('callEarly').style.display = 'inline-block';
   else document.getElementById('callEarly').style.display = 'none';
 
   for (let i = enemies.length-1; i >= 0; i--) {
     const e = enemies[i];
-    if (e.idx >= path.length-1) { lives--; enemies.splice(i,1); if (lives <= 0) { alert('Game Over! Wave ' + wave); location.reload(); } continue; }
-    const a = path[e.idx], b = path[e.idx+1];
-    const len = Math.hypot(b.x-a.x, b.y-a.y);
+    const pth = paths[e.pathIndex];
+    if (!e.returning && e.idx >= pth.length-1) {
+      // reached end, pick up resource and turn around
+      e.returning = true;
+      e.carrying = true;
+      e.idx = pth.length-2;
+      e.prog = 0;
+      continue;
+    }
+    if (e.returning && e.idx <= 0 && e.prog <= 0) {
+      // successfully returned resource
+      gold += 6;
+      enemies.splice(i,1);
+      continue;
+    }
+    if (e.idx >= pth.length-1 && !e.returning) { lives--; enemies.splice(i,1); if (lives <= 0) { alert('Game Over! Wave ' + wave); location.reload(); } continue; }
+    const a = e.returning ? pth[e.idx+1] : pth[e.idx];
+    const b = e.returning ? pth[e.idx] : pth[e.idx+1];
+    const len = Math.hypot(b.x-a.x, b.y-a.y) || 1;
     e.prog += (e.speed * 55 * dt) / len;
-    if (e.prog >= 1) { e.prog = 0; e.idx++; }
-    else { e.x = a.x + (b.x-a.x)*e.prog; e.y = a.y + (b.y-a.y)*e.prog; }
+    if (e.prog >= 1) {
+      e.prog = 0;
+      if (e.returning) e.idx--;
+      else e.idx++;
+    } else {
+      e.x = a.x + (b.x-a.x)*e.prog;
+      e.y = a.y + (b.y-a.y)*e.prog;
+    }
   }
 
   towers.forEach(t => {
@@ -428,11 +466,34 @@ function loop(now) {
     }
   }
 
+  // move drifting resources back
+  for (let i = resources.length-1; i >= 0; i--) {
+    const r = resources[i];
+    const pth = paths[r.pathIndex];
+    if (r.idx <= 0) { resources.splice(i,1); continue; }
+    const a = pth[r.idx];
+    const b = pth[r.idx-1];
+    const len = Math.hypot(b.x-a.x, b.y-a.y) || 1;
+    r.prog += (0.35 * 55 * dt) / len;
+    if (r.prog >= 1) { r.prog = 0; r.idx--; }
+    else { r.x = a.x + (b.x-a.x)*r.prog; r.y = a.y + (b.y-a.y)*r.prog; }
+  }
+
   ctx.clearRect(0,0,W,H);
-  ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 32; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.beginPath(); ctx.moveTo(path[0].x, path[0].y);
-  path.slice(1).forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
-  ctx.strokeStyle = '#334155'; ctx.lineWidth = 24; ctx.stroke();
+  // draw all paths
+  paths.forEach((pth, pi) => {
+    ctx.strokeStyle = pi === 0 ? '#1e293b' : '#334155';
+    ctx.lineWidth = 28;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(pth[0].x, pth[0].y);
+    pth.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+    ctx.strokeStyle = pi === 0 ? '#334155' : '#475569';
+    ctx.lineWidth = 20;
+    ctx.stroke();
+  });
 
   if (selected) {
     const d = defs[selected];
@@ -453,10 +514,14 @@ function loop(now) {
   });
 
   enemies.forEach(e => {
-    ctx.beginPath(); ctx.arc(e.x, e.y, e.size, 0, Math.PI*2); ctx.fillStyle = e.color; ctx.fill();
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.size, 0, Math.PI*2); ctx.fillStyle = e.carrying ? '#fbbf24' : e.color; ctx.fill();
     const bw = e.size*2;
     ctx.fillStyle = '#1f2937'; ctx.fillRect(e.x-bw/2, e.y-e.size-7, bw, 4);
     ctx.fillStyle = '#22c55e'; ctx.fillRect(e.x-bw/2, e.y-e.size-7, bw*(e.hp/e.max), 4);
+  });
+
+  resources.forEach(r => {
+    ctx.beginPath(); ctx.arc(r.x, r.y, 6, 0, Math.PI*2); ctx.fillStyle = '#fbbf24'; ctx.fill();
   });
 
   bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, 3.5, 0, Math.PI*2); ctx.fillStyle = b.color; ctx.fill(); });
@@ -468,7 +533,13 @@ function loop(now) {
 function hit(e, dmg, slow) {
   e.hp -= dmg;
   if (slow && !e.slowed) { e.speed *= slow; e.slowed = true; setTimeout(() => { e.speed /= slow; e.slowed = false; }, 1500); }
-  if (e.hp <= 0) { gold += e.reward; enemies.splice(enemies.indexOf(e), 1); }
+  if (e.hp <= 0) {
+    if (e.carrying) {
+      resources.push({ x: e.x, y: e.y, pathIndex: e.pathIndex, idx: e.idx, prog: e.prog, returning: true });
+    }
+    gold += e.reward;
+    enemies.splice(enemies.indexOf(e), 1);
+  }
 }
 
 let mouseX = 0, mouseY = 0;
