@@ -67,6 +67,7 @@
   </div>
   <div id="scoreList" style="font-size:14px; line-height:1.5;"></div>
 </div>
+<div id="info" style="display:none; position:absolute; top:90px; right:12px; background:rgba(15,15,35,0.92); padding:12px; border-radius:12px; width:170px; border:1px solid #334155; z-index:5; pointer-events:auto;">
   <div id="infoTitle">Tower</div>
   <div id="infoStats"></div>
   <button id="upgrade" style="width:100%;margin-top:8px;">Upgrade</button>
@@ -295,7 +296,6 @@ function callEarly() {
   if (!waveActive || wave >= 15) return;
   const bonus = Math.round(12 * diffs[difficulty].rewardMult);
   gold += bonus;
-  // start next wave immediately without clearing current enemies
   wave++;
   const d = diffs[difficulty];
   const n = Math.round((7 + wave * 2.2) * d.countMult);
@@ -400,7 +400,6 @@ function loop(now) {
       return;
     }
     if (wave >= 10 && difficulty !== 'hard') document.getElementById('nextDiff').style.display = 'inline-block';
-    // auto-start next wave
     setTimeout(() => { if (!won && !paused) startWave(); }, 800);
   }
   if (waveActive) document.getElementById('callEarly').style.display = 'inline-block';
@@ -410,7 +409,6 @@ function loop(now) {
     const e = enemies[i];
     const pth = paths[e.pathIndex];
     if (!e.returning && e.idx >= pth.length-1) {
-      // reached end, pick up resource and turn around
       e.returning = true;
       e.carrying = true;
       e.idx = pth.length-2;
@@ -418,8 +416,8 @@ function loop(now) {
       continue;
     }
     if (e.returning && e.idx <= 0 && e.prog <= 0) {
-      // successfully returned resource
-      gold += 6;
+      lives--;
+      if (lives <= 0) { alert('Game Over! Wave ' + wave); location.reload(); }
       enemies.splice(i,1);
       continue;
     }
@@ -466,21 +464,19 @@ function loop(now) {
     }
   }
 
-  // move drifting resources back
   for (let i = resources.length-1; i >= 0; i--) {
     const r = resources[i];
     const pth = paths[r.pathIndex];
-    if (r.idx <= 0) { resources.splice(i,1); continue; }
+    if (r.idx >= pth.length-1) { resources.splice(i,1); continue; }
     const a = pth[r.idx];
-    const b = pth[r.idx-1];
+    const b = pth[r.idx+1];
     const len = Math.hypot(b.x-a.x, b.y-a.y) || 1;
     r.prog += (0.35 * 55 * dt) / len;
-    if (r.prog >= 1) { r.prog = 0; r.idx--; }
+    if (r.prog >= 1) { r.prog = 0; r.idx++; }
     else { r.x = a.x + (b.x-a.x)*r.prog; r.y = a.y + (b.y-a.y)*r.prog; }
   }
 
   ctx.clearRect(0,0,W,H);
-  // draw all paths
   paths.forEach((pth, pi) => {
     ctx.strokeStyle = pi === 0 ? '#1e293b' : '#334155';
     ctx.lineWidth = 28;
