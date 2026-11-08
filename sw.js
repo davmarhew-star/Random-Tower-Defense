@@ -1,4 +1,4 @@
-const CACHE = 'td-v10';
+const CACHE = 'td-v12';
 const ASSETS = [
   './',
   './index.html',
